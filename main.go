@@ -1,6 +1,7 @@
 package main
 
 import (
+	"EchoProject/models"
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo"
@@ -8,47 +9,40 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 )
-
-type Cat struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-type Dog struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-type Hamster struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
 
 func main() {
 	fmt.Println("Starting")
 	//start echo
 	e := echo.New()
+	e.Use(setUpSErverHeader)
 	//for grouping routes to one category.
-	g := e.Group("/admin")
+	adminGroup := e.Group("/admin")
+	cookieGroup := e.Group("/cookie")
+
 	//using middleware
 	//to format the logs to view on the console
-	g.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+	adminGroup.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Skipper:          nil,
 		Format:           `[${time_rfc3339}] ${status} ${method} ${host} ${path} ${latency_human}` + "\n",
 		CustomTimeFormat: "",
 		Output:           nil,
 	}))
-	g.Use(middleware.BasicAuth(func(username string, password string, context echo.Context) (b bool, e error) {
+	adminGroup.Use(middleware.BasicAuth(func(username string, password string, context echo.Context) (b bool, e error) {
 		//check in the database if password is valid
 		if username == "jack" && password == "1234" {
 			return true, nil
 		}
 		return false, nil
 	}))
-	g.Use(middleware.CORS())
-
-	g.GET("/main", mainAdmin)
-
+	adminGroup.Use(middleware.CORS())
+	adminGroup.GET("/main", mainAdmin)
+	cookieGroup.GET("/main", mainCookie)
+	cookieGroup.Use(checkCookie)
 	e.GET("/", serverStart)
+	e.GET("/login", login)
 	e.GET("/cats", getCats)
 	e.GET("/cats/:data", getDataType)
 	e.POST("/cats", addCat)
@@ -58,12 +52,60 @@ func main() {
 	_ = e.Start(":8000")
 }
 
+func mainCookie(context echo.Context) error {
+	return context.String(http.StatusOK, "you are on the secret page")
+}
+func setUpSErverHeader(e echo.HandlerFunc) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		context.Response().Header().Set(echo.HeaderServer, "Server 1.0")
+		return e(context)
+	}
+}
+
+func login(context echo.Context) error {
+	username := context.QueryParam("username")
+	password := context.QueryParam("password")
+	//perform check in db if valid after hashing it
+	if username == "jack" && password == "1234" {
+		cookie := &http.Cookie{}
+		//this is the same
+		//cookie:= new(http.Cookie)
+		cookie.Name = "sessionID"
+		cookie.Value = "some_string"
+		cookie.Expires = time.Now().Add(48 * time.Hour)
+
+		context.SetCookie(cookie)
+		return context.String(http.StatusOK, "You are logged in")
+	}
+	return context.String(http.StatusInternalServerError, "You username or password is invalid")
+
+}
+func checkCookie(e echo.HandlerFunc) echo.HandlerFunc {
+	return func(context echo.Context) error {
+		cookie, err := context.Cookie("sessionID")
+		if err != nil {
+			if strings.Contains(err.Error(), "named cookie not present") {
+				return context.String(http.StatusUnauthorized, "You dont have any cookie")
+			}
+			log.Println(err)
+			return err
+		}
+		if cookie.Value == "some_string" {
+			return e(context)
+		}
+		return context.String(http.StatusUnauthorized, "Wrong credentials")
+	}
+}
+
 func mainAdmin(context echo.Context) error {
 	return context.String(http.StatusOK, "Secret admin")
 }
 
+/**
+we create 3 different methods of processing requests.
+*/
 func addHamster(context echo.Context) error {
-	hamster := Hamster{}
+	hamster := models.Hamster{}
 	err := context.Bind(&hamster)
 	if err != nil {
 		log.Printf("failed processing add hamster request %s", err)
@@ -74,7 +116,7 @@ func addHamster(context echo.Context) error {
 }
 
 func addDog(context echo.Context) error {
-	dog := Dog{}
+	dog := models.Dog{}
 	defer context.Request().Body.Close()
 	err := json.NewDecoder(context.Request().Body).Decode(&dog)
 	if err != nil {
@@ -86,7 +128,7 @@ func addDog(context echo.Context) error {
 }
 
 func addCat(context echo.Context) error {
-	cat := Cat{}
+	cat := models.Cat{}
 	defer context.Request().Body.Close()
 	body, err := ioutil.ReadAll(context.Request().Body)
 	if err != nil {
