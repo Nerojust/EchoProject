@@ -37,6 +37,13 @@ func main() {
 		CustomTimeFormat: "",
 		Output:           nil,
 	}))
+	g.Use(middleware.BasicAuth(func(username string, password string, context echo.Context) (b bool, e error) {
+		//check in the database if password is valid
+		if username == "jack" && password == "1234" {
+			return true, nil
+		}
+		return false, nil
+	}))
 	g.Use(middleware.CORS())
 
 	g.GET("/main", mainAdmin)
@@ -60,7 +67,7 @@ func addHamster(context echo.Context) error {
 	err := context.Bind(&hamster)
 	if err != nil {
 		log.Printf("failed processing add hamster request %s", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, )
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 	log.Printf("this is ur hamster details %#v", hamster)
 	return context.String(http.StatusOK, "Hamster request successfully sent")
@@ -72,7 +79,7 @@ func addDog(context echo.Context) error {
 	err := json.NewDecoder(context.Request().Body).Decode(&dog)
 	if err != nil {
 		log.Printf("failed processing add dog request %s", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, )
+		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
 	log.Printf("this is ur dog details %#v", dog)
 	return context.String(http.StatusOK, "Request successfully sent")
